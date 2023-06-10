@@ -12,7 +12,7 @@ lazy val root = project
 
     libraryDependencies += "org.typelevel" %% "cats-effect" % "3.4.5",
    
-    libraryDependencies += "io.github.ablearthy" %% "td-types" % "1.8.10",
+    libraryDependencies += "io.github.ablearthy" %% "td-types" % "1.8.10-2",
     libraryDependencies += "io.github.ablearthy" %% "tdjson-bind-core" % "1.8.10-1",
     libraryDependencies += "io.github.ablearthy" % "tdjson-bind-native" % "1.8.10-1",
 
