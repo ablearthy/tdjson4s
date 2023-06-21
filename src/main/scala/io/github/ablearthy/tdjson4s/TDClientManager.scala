@@ -81,7 +81,8 @@ class TDClientManager(
         device_model = deviceModel.getOrElse(
           s"Scala ${scala.util.Properties.versionNumberString}"
         ),
-        system_version = appVersion.getOrElse(s"${scala.util.Properties.osName}"),
+        system_version =
+          appVersion.getOrElse(s"${scala.util.Properties.osName}"),
         application_version = appVersion.getOrElse("1.0.0"),
         enable_storage_optimizer = enableStorageOptimizer,
         ignore_file_names = ignoreFileNames
