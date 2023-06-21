@@ -16,11 +16,13 @@ import fs2.Stream
 import io.circe.{Json, JsonObject, Encoder, Decoder}
 import io.circe.parser.decode
 import io.circe.syntax._
+import io.circe.Encoder.AsObject
 
 class TDClientManager(
     private val lastExtraId: Ref[IO, Int],
     private val topic: Topic[IO, JsonObject],
-    private val client: TDJsonIO[IO]
+    private val client: TDJsonIO[IO],
+    private val handlersMap: Ref[IO, Map[Int, Deferred[IO, JsonObject]]]
 ) {
   final def setLogMessageCallback(
       maxVerbosityLevel: Int,
@@ -185,6 +187,32 @@ class TDClientManager(
         for {
           clientId <- client.td_create_client_id
           c = new TDClient[IO] {
+
+            override def queryAsync[In: Encoder.AsObject, Out](query: In)(using
+                In <:< TLFunction[Out],
+                Decoder[Out]
+            ): IO[Either[types.Error, Out]] = for {
+              sig <- Deferred[IO, JsonObject]
+              extraId <- lastExtraId.getAndUpdate(_ + 1)
+              _ <- handlersMap.update(_ + (extraId -> sig))
+              _ <- client.td_send(
+                clientId,
+                Json
+                  .fromJsonObject(
+                    query.asJsonObject.add("@extra", Json.fromInt(extraId))
+                  )
+                  .noSpaces
+              )
+              o <- sig.get.map { o =>
+                if o("@type")
+                    .flatMap(_.asString)
+                    .map(_ == "error")
+                    .getOrElse(false)
+                then decoders.errorDecoder.decodeJson(o.asJson).map(Left.apply)
+                else Decoder[Out].decodeJson(o.asJson).map(Right.apply)
+              }.rethrow
+            } yield o
+
             override def send(query: JsonObject): IO[Int] =
               for {
                 extraId <- lastExtraId.getAndUpdate(_ + 1)
@@ -205,6 +233,7 @@ class TDClientManager(
                     .map(_ == clientId)
                     .getOrElse(false)
                 )
+
           }
           _ <- c.updateStream
             .collect { case x: Update.UpdateAuthorizationState =>
@@ -235,15 +264,31 @@ class TDClientManager(
 object TDClientManager {
 
   def default: IO[TDClientManager] =
+    def sendToHandler(
+        handlersMapRef: Ref[IO, Map[Int, Deferred[IO, JsonObject]]]
+    )(o: JsonObject): IO[Unit] =
+      val maybeExtraId = o("@extra").flatMap(_.asNumber).flatMap(_.toInt)
+      maybeExtraId match
+        case Some(extraId) =>
+          for {
+            handlersMap <- handlersMapRef.get
+            _ <- handlersMap.get(extraId) match
+              case Some(sig) =>
+                sig.complete(o) >> handlersMapRef.update(_ - extraId)
+              case None => IO.unit
+          } yield IO.unit
+        case None => IO.unit
     val client = TDJsonIO.default[IO]
     for {
       lastExtraId <- Ref[IO].of(0)
+      handlersMap <- Ref[IO].of(Map.empty[Int, Deferred[IO, JsonObject]])
       topic <- Topic[IO, JsonObject]
       closeSignal <- Deferred[IO, Either[Throwable, Unit]]
       _ <- Stream
         .repeatEval(client.td_receive(500))
         .map(decode[JsonObject])
         .rethrow
+        .evalTap(sendToHandler(handlersMap))
         .through(topic.publish)
         .compile
         .drain
@@ -251,7 +296,8 @@ object TDClientManager {
     } yield TDClientManager(
       lastExtraId = lastExtraId,
       topic = topic,
-      client = client
+      client = client,
+      handlersMap = handlersMap
     )
 
 }

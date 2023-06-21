@@ -18,6 +18,9 @@ import io.circe.{Json, JsonObject}
 trait TDClient[F[_]: RaiseThrowable: Monad: Concurrent]:
   def send(query: JsonObject): F[Int]
   def mainStream: Stream[F, JsonObject]
+  def queryAsync[In: Encoder.AsObject, Out](
+      query: In
+  )(using In <:< TLFunction[Out], Decoder[Out]): F[Either[types.Error, Out]]
 
   final def updateStream: Stream[F, Update] =
     mainStream
@@ -31,28 +34,3 @@ trait TDClient[F[_]: RaiseThrowable: Monad: Concurrent]:
 
   final def send[In: Encoder.AsObject](query: In): F[Int] =
     send(query.asJsonObject)
-
-  final def queryAsync[In: Encoder.AsObject, Out](
-      query: In
-  )(using In <:< TLFunction[Out], Decoder[Out]): F[Either[types.Error, Out]] =
-    for {
-      extraId <- send(query.asJsonObject)
-      result <- responseStream
-        .collectFirst {
-          case o
-              if o("@extra")
-                .flatMap(_.asNumber)
-                .flatMap(_.toInt)
-                .map(_ == extraId)
-                .getOrElse(false) =>
-            o
-        }
-        .map { o =>
-          if o("@type").flatMap(_.asString).map(_ == "error").getOrElse(false)
-          then decoders.errorDecoder.decodeJson(o.asJson).map(Left.apply)
-          else Decoder[Out].decodeJson(o.asJson).map(Right.apply)
-        }
-        .rethrow
-        .compile
-        .lastOrError
-    } yield result
