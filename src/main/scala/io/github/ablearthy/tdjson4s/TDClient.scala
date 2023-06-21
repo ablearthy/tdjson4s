@@ -1,7 +1,5 @@
 package io.github.ablearthy.tdjson4s
 
-import cats.effect.Concurrent
-import cats.Monad
 import cats.syntax.all._
 
 import io.github.ablearthy.tl.codecs.TLFunction
@@ -15,7 +13,7 @@ import io.circe.syntax._
 import fs2.{Stream, RaiseThrowable}
 import io.circe.{Json, JsonObject}
 
-trait TDClient[F[_]: RaiseThrowable: Monad: Concurrent]:
+trait TDClient[F[_]: RaiseThrowable]:
   def send(query: JsonObject): F[Int]
   def mainStream: Stream[F, JsonObject]
   def queryAsync[In: Encoder.AsObject, Out](
