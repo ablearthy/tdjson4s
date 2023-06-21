@@ -2,6 +2,8 @@ val scala3Version = "3.2.2"
 
 val circeVersion = "0.14.3"
 
+ThisBuild / organization := "io.github.ablearthy"
+
 lazy val root = project
   .in(file("."))
   .settings(
